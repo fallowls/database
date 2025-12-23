@@ -63,6 +63,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ success: true });
     return true;
   }
+
+  if (message.type === "OPEN_PROFILE_BACKGROUND") {
+    const profileUrl = message.url;
+    if (profileUrl) {
+      // Open profile in background tab with LinkedIn session cookies
+      chrome.tabs.create({ 
+        url: profileUrl,
+        active: false
+      }, (tab) => {
+        sendResponse({ success: true, tabId: tab.id });
+      });
+      return true;
+    }
+    sendResponse({ success: false, message: "No URL provided" });
+    return true;
+  }
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {

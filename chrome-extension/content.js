@@ -275,9 +275,15 @@
       
       let linkedinUrl = getLinkedInUrlForLookup();
       let salesNavigatorUrl = getSalesNavigatorUrl();
+      
+      // On Sales Navigator pages, extract the public LinkedIn URL for lookup
+      let publicProfileUrl = linkedinUrl;
+      if (isSalesNavigatorPage() && !publicProfileUrl) {
+        publicProfileUrl = extractPublicLinkedInUrl();
+      }
 
       const lookupPayload = {};
-      if (linkedinUrl) lookupPayload.linkedinUrl = linkedinUrl;
+      if (publicProfileUrl) lookupPayload.linkedinUrl = publicProfileUrl;
       if (salesNavigatorUrl) lookupPayload.salesNavigatorUrl = salesNavigatorUrl;
 
       const response = await fetch(`${apiBaseUrl}/api/extension/lookup`, {
@@ -286,6 +292,7 @@
           "Content-Type": "application/json",
           Authorization: `Bearer ${result.authToken}`,
         },
+        credentials: "include",
         body: JSON.stringify(lookupPayload),
       });
 
@@ -320,7 +327,7 @@
           state: "",
           country: "",
           leadScore: null,
-          personLinkedIn: linkedinUrl,
+          personLinkedIn: publicProfileUrl || linkedinUrl,
           salesNavigatorUrl: salesNavigatorUrl,
         };
         // Show contact card with enabled save button
@@ -389,6 +396,7 @@
           "Content-Type": "application/json",
           Authorization: `Bearer ${result.authToken}`,
         },
+        credentials: "include",
         body: JSON.stringify({ linkedinUrl }),
       });
 
@@ -734,14 +742,25 @@
           const result = await chrome.storage.local.get(["authToken", "apiBaseUrl"]);
           const apiBaseUrl = result.apiBaseUrl || CRM_BASE_URL;
 
+          // Determine the correct URLs to save
+          let linkedinUrlToSave = publicUrl;
+          let salesNavUrlToSave = undefined;
+          
+          if (isSalesNavigatorPage()) {
+            linkedinUrlToSave = publicUrl;
+            salesNavUrlToSave = window.location.href;
+          }
+
           const response = await fetch(`${apiBaseUrl}/api/extension/save-profile`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${result.authToken}`,
             },
+            credentials: "include",
             body: JSON.stringify({
-              linkedinUrl: publicUrl || window.location.href,
+              linkedinUrl: linkedinUrlToSave,
+              salesNavigatorUrl: salesNavUrlToSave,
               fullName: contact.fullName,
               title: contact.title || undefined,
               company: contact.company || undefined,
