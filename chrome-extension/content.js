@@ -356,35 +356,13 @@
     }
   }
 
-  async function autoLookup() {
-    const profileKey = getProfileKey();
-    if (!profileKey) return;
-
-    if (autoLookupPerformed[profileKey]) {
-      return;
-    }
-
+  async function performLookupWithUrl(linkedinUrl) {
     try {
       const result = await chrome.storage.local.get(["authToken", "apiBaseUrl"]);
       
       if (!result.authToken) {
         return;
       }
-
-      let linkedinUrl;
-      
-      if (isProfilePage()) {
-        linkedinUrl = window.location.href;
-      } else if (isSalesNavigatorPage()) {
-        linkedinUrl = extractPublicLinkedInUrl();
-        if (!linkedinUrl) {
-          return;
-        }
-      } else {
-        return;
-      }
-
-      autoLookupPerformed[profileKey] = true;
 
       showAutoLookupIndicator();
 
@@ -418,8 +396,78 @@
         showContactCard(data.contact, data.usage);
       }
     } catch (error) {
+      console.error("Lookup error:", error);
+      hideAutoLookupIndicator();
+    }
+  }
+
+  async function autoLookup() {
+    const profileKey = getProfileKey();
+    if (!profileKey) return;
+
+    if (autoLookupPerformed[profileKey]) {
+      return;
+    }
+
+    try {
+      const result = await chrome.storage.local.get(["authToken", "apiBaseUrl"]);
+      
+      if (!result.authToken) {
+        return;
+      }
+
+      let linkedinUrl;
+      
+      if (isProfilePage()) {
+        linkedinUrl = window.location.href;
+      } else if (isSalesNavigatorPage()) {
+        linkedinUrl = extractPublicLinkedInUrl();
+        if (!linkedinUrl) {
+          return;
+        }
+      } else {
+        return;
+      }
+
+      autoLookupPerformed[profileKey] = true;
+      await performLookupWithUrl(linkedinUrl);
+    } catch (error) {
       console.error("Auto-lookup error:", error);
       hideAutoLookupIndicator();
+    }
+  }
+
+  async function resolveSalesNavProfileUrl() {
+    const leadId = extractSalesNavLeadId();
+    if (!leadId) {
+      console.log("Could not extract Sales Navigator lead ID");
+      return null;
+    }
+
+    try {
+      // Construct a LinkedIn member URL from the lead ID
+      // LinkedIn member pages can be accessed via /in/member-id/ and will redirect to the public profile
+      const memberUrl = `https://www.linkedin.com/in/${leadId}/`;
+      
+      // Request background script to open the URL and capture the resolved URL
+      return new Promise((resolve) => {
+        chrome.runtime.sendMessage({
+          type: "RESOLVE_PROFILE_URL",
+          url: memberUrl,
+          timeout: 5000
+        }, (response) => {
+          if (response && response.success && response.resolvedUrl) {
+            console.log("Resolved Sales Nav profile URL:", response.resolvedUrl);
+            resolve(response.resolvedUrl);
+          } else {
+            console.log("Failed to resolve profile URL");
+            resolve(null);
+          }
+        });
+      });
+    } catch (error) {
+      console.error("Error resolving Sales Navigator profile:", error);
+      return null;
     }
   }
 
@@ -430,60 +478,74 @@
       salesNavObserver.disconnect();
     }
 
-    function tryExtraction() {
-      extractionAttempts++;
-      
-      const publicUrl = extractPublicLinkedInUrl();
-      
-      if (publicUrl) {
-        if (salesNavObserver) {
-          salesNavObserver.disconnect();
+    // Try to resolve the profile URL in the background first
+    resolveSalesNavProfileUrl().then((resolvedUrl) => {
+      if (resolvedUrl) {
+        // Use the resolved URL for lookup
+        const profileKey = getProfileKey();
+        if (profileKey) {
+          autoLookupPerformed[profileKey] = true;
         }
-        showSalesNavIndicator(publicUrl);
-        createLookupButton(true);
-        setTimeout(() => autoLookup(), 500);
-        return true;
+        performLookupWithUrl(resolvedUrl);
+        return;
       }
-      
-      if (extractionAttempts >= MAX_EXTRACTION_ATTEMPTS) {
-        if (salesNavObserver) {
-          salesNavObserver.disconnect();
+
+      // Fallback to DOM extraction if background resolution failed
+      function tryExtraction() {
+        extractionAttempts++;
+        
+        const publicUrl = extractPublicLinkedInUrl();
+        
+        if (publicUrl) {
+          if (salesNavObserver) {
+            salesNavObserver.disconnect();
+          }
+          showSalesNavIndicator(publicUrl);
+          createLookupButton(true);
+          setTimeout(() => autoLookup(), 500);
+          return true;
         }
-        createLookupButton(true);
+        
+        if (extractionAttempts >= MAX_EXTRACTION_ATTEMPTS) {
+          if (salesNavObserver) {
+            salesNavObserver.disconnect();
+          }
+          createLookupButton(true);
+          return false;
+        }
+        
         return false;
       }
-      
-      return false;
-    }
 
-    if (tryExtraction()) return;
-
-    setTimeout(() => {
       if (tryExtraction()) return;
 
-      salesNavObserver = new MutationObserver(() => {
-        tryExtraction();
-      });
-
-      salesNavObserver.observe(document.body, { 
-        subtree: true, 
-        childList: true,
-        attributes: true
-      });
-
-      const checkInterval = setInterval(() => {
-        if (tryExtraction() || extractionAttempts >= MAX_EXTRACTION_ATTEMPTS) {
-          clearInterval(checkInterval);
-        }
-      }, 500);
-
       setTimeout(() => {
-        clearInterval(checkInterval);
-        if (salesNavObserver) {
-          salesNavObserver.disconnect();
-        }
-      }, 10000);
-    }, 1000);
+        if (tryExtraction()) return;
+
+        salesNavObserver = new MutationObserver(() => {
+          tryExtraction();
+        });
+
+        salesNavObserver.observe(document.body, { 
+          subtree: true, 
+          childList: true,
+          attributes: true
+        });
+
+        const checkInterval = setInterval(() => {
+          if (tryExtraction() || extractionAttempts >= MAX_EXTRACTION_ATTEMPTS) {
+            clearInterval(checkInterval);
+          }
+        }, 500);
+
+        setTimeout(() => {
+          clearInterval(checkInterval);
+          if (salesNavObserver) {
+            salesNavObserver.disconnect();
+          }
+        }, 10000);
+      }, 1000);
+    });
   }
 
   function showSalesNavIndicator(publicUrl) {
