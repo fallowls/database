@@ -11,7 +11,6 @@ function getBaseUrl(senderUrl) {
 
 const DEFAULT_CRM_URL = "https://crm.fallowl.com";
 let activeTabId = null;
-let resolvingTabs = new Map(); // Track tabs that are resolving URLs
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "STORE_AUTH") {
@@ -81,84 +80,71 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === "RESOLVE_PROFILE_URL") {
+  if (message.type === "RESOLVE_URL_WITH_BACKGROUND_TAB") {
     const profileUrl = message.url;
-    const timeout = message.timeout || 5000;
-    
     if (!profileUrl) {
       sendResponse({ success: false, message: "No URL provided" });
       return true;
     }
 
-    // Open the profile URL in a background tab
-    chrome.tabs.create(
-      {
-        url: profileUrl,
-        active: false
-      },
-      (tab) => {
-        if (!tab) {
-          sendResponse({ success: false, message: "Failed to create tab" });
-          return;
+    let resolved = false;
+    let timeoutId = null;
+
+    chrome.tabs.create({ 
+      url: profileUrl,
+      active: false
+    }, (tab) => {
+      if (!tab) {
+        sendResponse({ success: false, message: "Failed to create tab" });
+        return;
+      }
+
+      // Set timeout to close tab if it takes too long
+      timeoutId = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          chrome.tabs.remove(tab.id).catch(() => {});
+          sendResponse({
+            success: true,
+            finalUrl: profileUrl // Return original URL if timeout
+          });
         }
+      }, 3000);
 
-        let resolved = false;
-        let timeoutId = null;
+      // Listen for tab load completion
+      const checkUrl = (tabId, changeInfo) => {
+        if (tabId !== tab.id || resolved) return;
 
-        // Track this tab
-        resolvingTabs.set(tab.id, {
-          sendResponse: sendResponse,
-          startUrl: profileUrl
-        });
+        if (changeInfo.status === "complete") {
+          chrome.tabs.get(tab.id, (currentTab) => {
+            if (!currentTab) return;
 
-        // Set timeout to close the tab if resolution takes too long
-        timeoutId = setTimeout(() => {
-          if (!resolved) {
-            resolved = true;
-            resolvingTabs.delete(tab.id);
-            chrome.tabs.remove(tab.id).catch(() => {});
-            sendResponse({
-              success: false,
-              message: "Profile resolution timeout"
-            });
-          }
-        }, timeout);
-
-        // Listen for this specific tab's updates
-        const onTabUpdated = (tabId, changeInfo, tabInfo) => {
-          if (tabId !== tab.id || resolved) return;
-
-          // When tab completes loading, capture the final URL
-          if (changeInfo.status === "complete") {
-            const finalUrl = tabInfo.url;
+            const finalUrl = currentTab.url;
             
-            // Check if we got a valid LinkedIn profile URL
+            // Check if we got a valid profile URL (not error page, login, etc)
             if (
               finalUrl &&
               finalUrl.includes("linkedin.com/in/") &&
-              !finalUrl.includes("sales/lead")
+              !finalUrl.includes("authwall") &&
+              !finalUrl.includes("signin") &&
+              !finalUrl.includes("error")
             ) {
               resolved = true;
               clearTimeout(timeoutId);
-              chrome.tabs.onUpdated.removeListener(onTabUpdated);
-              resolvingTabs.delete(tab.id);
-              
-              // Close the background tab
+              chrome.tabs.onUpdated.removeListener(checkUrl);
               chrome.tabs.remove(tab.id).catch(() => {});
-              
-              // Send the resolved URL back
+
               sendResponse({
                 success: true,
-                resolvedUrl: finalUrl,
-                tabId: tab.id
+                finalUrl: finalUrl
               });
             }
-          }
-        };
+          });
+        }
+      };
 
-        chrome.tabs.onUpdated.addListener(onTabUpdated);
-      }
-    );
+      chrome.tabs.onUpdated.addListener(checkUrl);
+    });
 
     return true;
   }

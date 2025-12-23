@@ -356,13 +356,35 @@
     }
   }
 
-  async function performLookupWithUrl(linkedinUrl) {
+  async function autoLookup() {
+    const profileKey = getProfileKey();
+    if (!profileKey) return;
+
+    if (autoLookupPerformed[profileKey]) {
+      return;
+    }
+
     try {
       const result = await chrome.storage.local.get(["authToken", "apiBaseUrl"]);
       
       if (!result.authToken) {
         return;
       }
+
+      let linkedinUrl;
+      
+      if (isProfilePage()) {
+        linkedinUrl = window.location.href;
+      } else if (isSalesNavigatorPage()) {
+        linkedinUrl = extractPublicLinkedInUrl();
+        if (!linkedinUrl) {
+          return;
+        }
+      } else {
+        return;
+      }
+
+      autoLookupPerformed[profileKey] = true;
 
       showAutoLookupIndicator();
 
@@ -396,77 +418,47 @@
         showContactCard(data.contact, data.usage);
       }
     } catch (error) {
-      console.error("Lookup error:", error);
-      hideAutoLookupIndicator();
-    }
-  }
-
-  async function autoLookup() {
-    const profileKey = getProfileKey();
-    if (!profileKey) return;
-
-    if (autoLookupPerformed[profileKey]) {
-      return;
-    }
-
-    try {
-      const result = await chrome.storage.local.get(["authToken", "apiBaseUrl"]);
-      
-      if (!result.authToken) {
-        return;
-      }
-
-      let linkedinUrl;
-      
-      if (isProfilePage()) {
-        linkedinUrl = window.location.href;
-      } else if (isSalesNavigatorPage()) {
-        linkedinUrl = extractPublicLinkedInUrl();
-        if (!linkedinUrl) {
-          return;
-        }
-      } else {
-        return;
-      }
-
-      autoLookupPerformed[profileKey] = true;
-      await performLookupWithUrl(linkedinUrl);
-    } catch (error) {
       console.error("Auto-lookup error:", error);
       hideAutoLookupIndicator();
     }
   }
 
-  async function resolveSalesNavProfileUrl() {
+  async function openProfileInBackgroundAndResolve() {
     const leadId = extractSalesNavLeadId();
     if (!leadId) {
-      console.log("Could not extract Sales Navigator lead ID");
+      console.log("Could not extract lead ID from Sales Navigator URL");
       return null;
     }
 
     try {
-      // Construct a LinkedIn member URL from the lead ID
-      // LinkedIn member pages can be accessed via /in/member-id/ and will redirect to the public profile
-      const memberUrl = `https://www.linkedin.com/in/${leadId}/`;
+      // First try to extract public URL from DOM
+      let publicUrl = extractPublicLinkedInUrl();
       
-      // Request background script to open the URL and capture the resolved URL
+      if (!publicUrl) {
+        // If extraction fails, try to construct URL from lead ID
+        // LinkedIn will redirect numeric profiles to their username versions
+        publicUrl = `https://www.linkedin.com/in/${leadId}`;
+      }
+
+      console.log("Opening profile in background to resolve URL:", publicUrl);
+
+      // Send message to background to open and resolve the URL
       return new Promise((resolve) => {
         chrome.runtime.sendMessage({
-          type: "RESOLVE_PROFILE_URL",
-          url: memberUrl,
-          timeout: 5000
+          type: "RESOLVE_URL_WITH_BACKGROUND_TAB",
+          url: publicUrl
         }, (response) => {
-          if (response && response.success && response.resolvedUrl) {
-            console.log("Resolved Sales Nav profile URL:", response.resolvedUrl);
-            resolve(response.resolvedUrl);
+          if (response && response.success && response.finalUrl) {
+            console.log("Resolved to:", response.finalUrl);
+            resolve(response.finalUrl);
           } else {
-            console.log("Failed to resolve profile URL");
-            resolve(null);
+            console.log("Could not resolve URL in background tab, using original:", publicUrl);
+            resolve(publicUrl);
           }
         });
       });
     } catch (error) {
-      console.error("Error resolving Sales Navigator profile:", error);
+      console.error("Error resolving profile in background:", error);
       return null;
     }
   }
@@ -478,22 +470,68 @@
       salesNavObserver.disconnect();
     }
 
-    // Try to resolve the profile URL in the background first
-    resolveSalesNavProfileUrl().then((resolvedUrl) => {
+    // Open profile in background to resolve URL
+    openProfileInBackgroundAndResolve().then((resolvedUrl) => {
       if (resolvedUrl) {
-        // Use the resolved URL for lookup
+        console.log("Using resolved URL for lookup:", resolvedUrl);
         const profileKey = getProfileKey();
         if (profileKey) {
           autoLookupPerformed[profileKey] = true;
         }
-        performLookupWithUrl(resolvedUrl);
+        
+        // Show indicator and perform lookup
+        showSalesNavIndicator(resolvedUrl);
+        createLookupButton(true);
+        
+        // Perform lookup with the resolved URL
+        (async () => {
+          try {
+            const result = await chrome.storage.local.get(["authToken", "apiBaseUrl"]);
+            if (!result.authToken) return;
+
+            showAutoLookupIndicator();
+            const apiBaseUrl = result.apiBaseUrl || CRM_BASE_URL;
+
+            const response = await fetch(`${apiBaseUrl}/api/extension/lookup`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${result.authToken}`,
+              },
+              credentials: "include",
+              body: JSON.stringify({ linkedinUrl: resolvedUrl }),
+            });
+
+            const data = await response.json();
+            hideAutoLookupIndicator();
+
+            if (response.status === 401) {
+              chrome.storage.local.remove(["authToken", "apiBaseUrl"]);
+              return;
+            }
+
+            if (response.status === 403) {
+              showNotification(data.message || "Lookup limit reached", "warning");
+              return;
+            }
+
+            if (data.success && data.found) {
+              showContactCard(data.contact, data.usage);
+            }
+          } catch (error) {
+            console.error("Lookup error:", error);
+            hideAutoLookupIndicator();
+          }
+        })();
+        
         return;
       }
 
-      // Fallback to DOM extraction if background resolution failed
+      // Fallback to DOM extraction
+      console.log("Background resolution failed, falling back to DOM extraction");
+      
       function tryExtraction() {
         extractionAttempts++;
-        
         const publicUrl = extractPublicLinkedInUrl();
         
         if (publicUrl) {
