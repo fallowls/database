@@ -484,6 +484,10 @@
         }
 
         if (data.success && data.found) {
+          // Show the public LinkedIn URL in indicator if available
+          if (data.contact.personLinkedIn) {
+            showSalesNavIndicator(data.contact.personLinkedIn);
+          }
           showContactCard(data.contact, data.usage);
         }
       } catch (error) {
