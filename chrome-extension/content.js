@@ -249,7 +249,9 @@
 
   function getSalesNavigatorUrl() {
     if (isSalesNavigatorPage()) {
-      return window.location.href;
+      const url = window.location.href;
+      console.log("Extracted Sales Navigator URL:", url);
+      return url;
     }
     return null;
   }
@@ -423,167 +425,72 @@
     }
   }
 
-  async function openProfileInBackgroundAndResolve() {
-    const leadId = extractSalesNavLeadId();
-    if (!leadId) {
-      console.log("Could not extract lead ID from Sales Navigator URL");
-      return null;
-    }
-
-    try {
-      // First try to extract public URL from DOM
-      let publicUrl = extractPublicLinkedInUrl();
-      
-      if (!publicUrl) {
-        // If extraction fails, try to construct URL from lead ID
-        // LinkedIn will redirect numeric profiles to their username versions
-        publicUrl = `https://www.linkedin.com/in/${leadId}`;
-      }
-
-      console.log("Opening profile in background to resolve URL:", publicUrl);
-
-      // Send message to background to open and resolve the URL
-      return new Promise((resolve) => {
-        chrome.runtime.sendMessage({
-          type: "RESOLVE_URL_WITH_BACKGROUND_TAB",
-          url: publicUrl
-        }, (response) => {
-          if (response && response.success && response.finalUrl) {
-            console.log("Resolved to:", response.finalUrl);
-            resolve(response.finalUrl);
-          } else {
-            console.log("Could not resolve URL in background tab, using original:", publicUrl);
-            resolve(publicUrl);
-          }
-        });
-      });
-    } catch (error) {
-      console.error("Error resolving profile in background:", error);
-      return null;
-    }
-  }
-
   function waitForSalesNavProfile() {
-    extractionAttempts = 0;
+    // Extract Sales Navigator URL directly from the current tab
+    const salesNavigatorUrl = getSalesNavigatorUrl();
     
-    if (salesNavObserver) {
-      salesNavObserver.disconnect();
+    if (!salesNavigatorUrl) {
+      console.log("Could not extract Sales Navigator URL");
+      createLookupButton(true);
+      return;
     }
 
-    // Open profile in background to resolve URL
-    openProfileInBackgroundAndResolve().then((resolvedUrl) => {
-      if (resolvedUrl) {
-        console.log("Using resolved URL for lookup:", resolvedUrl);
-        const profileKey = getProfileKey();
-        if (profileKey) {
-          autoLookupPerformed[profileKey] = true;
+    // Create lookup button immediately
+    createLookupButton(true);
+    
+    // Auto-perform lookup with the Sales Navigator URL
+    const profileKey = getProfileKey();
+    if (profileKey) {
+      autoLookupPerformed[profileKey] = true;
+    }
+
+    // Perform lookup directly with Sales Navigator URL
+    (async () => {
+      try {
+        const result = await chrome.storage.local.get(["authToken", "apiBaseUrl"]);
+        if (!result.authToken) {
+          console.log("No auth token available");
+          return;
         }
-        
-        // Show indicator and perform lookup
-        showSalesNavIndicator(resolvedUrl);
-        createLookupButton(true);
-        
-        // Perform lookup with the resolved URL
-        (async () => {
-          try {
-            const result = await chrome.storage.local.get(["authToken", "apiBaseUrl"]);
-            if (!result.authToken) return;
 
-            showAutoLookupIndicator();
-            const apiBaseUrl = result.apiBaseUrl || CRM_BASE_URL;
+        showAutoLookupIndicator();
+        const apiBaseUrl = result.apiBaseUrl || CRM_BASE_URL;
 
-            const response = await fetch(`${apiBaseUrl}/api/extension/lookup`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${result.authToken}`,
-              },
-              credentials: "include",
-              body: JSON.stringify({ linkedinUrl: resolvedUrl }),
-            });
+        console.log("Performing lookup with Sales Navigator URL:", salesNavigatorUrl);
 
-            const data = await response.json();
-            hideAutoLookupIndicator();
-
-            if (response.status === 401) {
-              chrome.storage.local.remove(["authToken", "apiBaseUrl"]);
-              return;
-            }
-
-            if (response.status === 403) {
-              showNotification(data.message || "Lookup limit reached", "warning");
-              return;
-            }
-
-            if (data.success && data.found) {
-              showContactCard(data.contact, data.usage);
-            }
-          } catch (error) {
-            console.error("Lookup error:", error);
-            hideAutoLookupIndicator();
-          }
-        })();
-        
-        return;
-      }
-
-      // Fallback to DOM extraction
-      console.log("Background resolution failed, falling back to DOM extraction");
-      
-      function tryExtraction() {
-        extractionAttempts++;
-        const publicUrl = extractPublicLinkedInUrl();
-        
-        if (publicUrl) {
-          if (salesNavObserver) {
-            salesNavObserver.disconnect();
-          }
-          showSalesNavIndicator(publicUrl);
-          createLookupButton(true);
-          setTimeout(() => autoLookup(), 500);
-          return true;
-        }
-        
-        if (extractionAttempts >= MAX_EXTRACTION_ATTEMPTS) {
-          if (salesNavObserver) {
-            salesNavObserver.disconnect();
-          }
-          createLookupButton(true);
-          return false;
-        }
-        
-        return false;
-      }
-
-      if (tryExtraction()) return;
-
-      setTimeout(() => {
-        if (tryExtraction()) return;
-
-        salesNavObserver = new MutationObserver(() => {
-          tryExtraction();
+        const response = await fetch(`${apiBaseUrl}/api/extension/lookup`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${result.authToken}`,
+          },
+          credentials: "include",
+          body: JSON.stringify({ 
+            salesNavigatorUrl: salesNavigatorUrl
+          }),
         });
 
-        salesNavObserver.observe(document.body, { 
-          subtree: true, 
-          childList: true,
-          attributes: true
-        });
+        const data = await response.json();
+        hideAutoLookupIndicator();
 
-        const checkInterval = setInterval(() => {
-          if (tryExtraction() || extractionAttempts >= MAX_EXTRACTION_ATTEMPTS) {
-            clearInterval(checkInterval);
-          }
-        }, 500);
+        if (response.status === 401) {
+          chrome.storage.local.remove(["authToken", "apiBaseUrl"]);
+          return;
+        }
 
-        setTimeout(() => {
-          clearInterval(checkInterval);
-          if (salesNavObserver) {
-            salesNavObserver.disconnect();
-          }
-        }, 10000);
-      }, 1000);
-    });
+        if (response.status === 403) {
+          showNotification(data.message || "Lookup limit reached", "warning");
+          return;
+        }
+
+        if (data.success && data.found) {
+          showContactCard(data.contact, data.usage);
+        }
+      } catch (error) {
+        console.error("Auto-lookup error:", error);
+        hideAutoLookupIndicator();
+      }
+    })();
   }
 
   function showSalesNavIndicator(publicUrl) {
