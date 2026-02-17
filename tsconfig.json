@@ -1,5 +1,20 @@
 {
-  "include": ["client/src/**/*", "shared/**/*", "server/**/*"],
+  "include": [
+    "client/src/main.tsx",
+    "client/src/App.tsx",
+    "client/src/pages/companies.tsx",
+    "client/src/pages/contacts.tsx",
+    "client/src/pages/not-found.tsx",
+    "client/src/lib/queryClient.ts",
+    "shared/schema.ts",
+    "server/index.ts",
+    "server/routes.ts",
+    "server/db.ts",
+    "server/storage.ts",
+    "server/auth.ts",
+    "server/vite.ts",
+    "server/log.ts"
+  ],
   "exclude": ["node_modules", "build", "dist", "**/*.test.ts"],
   "compilerOptions": {
     "incremental": true,

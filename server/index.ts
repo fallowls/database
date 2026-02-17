@@ -1,7 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
-import { wsHub } from "./ws-hub";
+// wsHub disabled (Neon schema alignment)
 
 const app = express();
 app.use(express.json({ limit: '100mb' }));
@@ -48,9 +48,7 @@ app.use((req, res, next) => {
     throw err;
   });
 
-  // Initialize WebSocket hub for real-time import progress BEFORE Vite
-  // to avoid conflicts with Vite's HMR WebSocket
-  wsHub.initialize(server);
+  // wsHub disabled (Neon schema alignment)
 
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route

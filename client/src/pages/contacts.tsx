@@ -1,76 +1,49 @@
-import { Sidebar } from "@/components/layout/sidebar";
-import { Header } from "@/components/layout/header";
-import { ContactsTable } from "@/components/contacts/contacts-table";
-import { FilterBar } from "@/components/contacts/filter-bar";
-import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+
+type Contact = {
+  contactId: string;
+  firstName: string | null;
+  lastName: string | null;
+  emailPrimary: string | null;
+  titleRaw: string | null;
+  companyName: string | null;
+  companyDomain: string | null;
+};
 
 export default function Contacts() {
-  const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
-  const [filters, setFilters] = useState({
-    search: '',
-    industry: '',
-    employeeSizeBracket: '',
-    country: '',
+  const { data, isLoading, error } = useQuery<{ contacts: Contact[]; total: number }>({
+    queryKey: ["/api/contacts"],
   });
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('authToken');
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    return headers;
-  };
+  if (isLoading) return <div style={{ padding: 16 }}>Loading contacts...</div>;
+  if (error) return <div style={{ padding: 16 }}>Failed to load contacts</div>;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-900">
-      <Sidebar />
-      
-      <div className="flex flex-col w-0 flex-1 overflow-hidden">
-        <Header />
-        
-        <main className="flex-1 relative overflow-y-auto focus:outline-none">
-          <div className="py-4">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8">
-              <div className="mb-4">
-                <h1 className="text-xl font-bold text-gray-800 dark:text-gray-200">All Contacts</h1>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Manage and edit your contact database</p>
-              </div>
-
-              <FilterBar 
-                filters={filters}
-                onFiltersChange={setFilters}
-                selectedCount={selectedContactIds.length}
-                onBulkEdit={() => {
-                  console.log('Bulk edit clicked for:', selectedContactIds);
-                }}
-                onBulkDelete={async () => {
-                  if (selectedContactIds.length > 0 && confirm(`Delete ${selectedContactIds.length} contacts?`)) {
-                    try {
-                      const response = await fetch('/api/contacts', {
-                        method: 'DELETE',
-                        headers: getAuthHeaders(),
-                        credentials: 'include',
-                        body: JSON.stringify({ ids: selectedContactIds })
-                      });
-                      if (response.ok) {
-                        setSelectedContactIds([]);
-                        window.location.reload();
-                      }
-                    } catch (error) {
-                      console.error('Bulk delete failed:', error);
-                    }
-                  }
-                }}
-              />
-              
-              <ContactsTable 
-                filters={filters}
-                selectedContactIds={selectedContactIds}
-                onSelectionChange={setSelectedContactIds}
-              />
-            </div>
-          </div>
-        </main>
-      </div>
+    <div style={{ padding: 16 }}>
+      <h1 style={{ fontSize: 20, fontWeight: 600, marginBottom: 12 }}>Contacts</h1>
+      <div style={{ marginBottom: 8, color: "#666" }}>Total: {data?.total ?? 0}</div>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>Name</th>
+            <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>Email</th>
+            <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>Title</th>
+            <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>Company</th>
+            <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>Domain</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(data?.contacts ?? []).map((c) => (
+            <tr key={c.contactId}>
+              <td style={{ borderBottom: "1px solid #f0f0f0", padding: 8 }}>{`${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() || "(no name)"}</td>
+              <td style={{ borderBottom: "1px solid #f0f0f0", padding: 8 }}>{c.emailPrimary ?? ""}</td>
+              <td style={{ borderBottom: "1px solid #f0f0f0", padding: 8 }}>{c.titleRaw ?? ""}</td>
+              <td style={{ borderBottom: "1px solid #f0f0f0", padding: 8 }}>{c.companyName ?? ""}</td>
+              <td style={{ borderBottom: "1px solid #f0f0f0", padding: 8 }}>{c.companyDomain ?? ""}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
