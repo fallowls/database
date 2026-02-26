@@ -9,7 +9,7 @@ function getBaseUrl(senderUrl) {
   }
 }
 
-const DEFAULT_CRM_URL = "https://crm.fallowl.com";
+const DEFAULT_CRM_URL = "http://localhost:5000";
 let activeTabId = null;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -68,7 +68,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const profileUrl = message.url;
     if (profileUrl) {
       // Open profile in background tab with LinkedIn session cookies
-      chrome.tabs.create({ 
+      chrome.tabs.create({
         url: profileUrl,
         active: false
       }, (tab) => {
@@ -98,14 +98,14 @@ chrome.runtime.onConnect.addListener((port) => {
   if (port.name === "popup") {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]?.url?.includes("linkedin.com")) {
-        chrome.tabs.sendMessage(tabs[0].id, { type: "POPUP_OPENED" }).catch(() => {});
+        chrome.tabs.sendMessage(tabs[0].id, { type: "POPUP_OPENED" }).catch(() => { });
       }
     });
 
     port.onDisconnect.addListener(() => {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (tabs[0]?.url?.includes("linkedin.com")) {
-          chrome.tabs.sendMessage(tabs[0].id, { type: "POPUP_CLOSED" }).catch(() => {});
+          chrome.tabs.sendMessage(tabs[0].id, { type: "POPUP_CLOSED" }).catch(() => { });
         }
       });
     });

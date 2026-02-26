@@ -10,7 +10,7 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  
+
   if (req.method === "OPTIONS") {
     return res.sendStatus(200);
   }
@@ -25,24 +25,19 @@ const linkedinLookupSchema = z.object({
   "At least one URL (linkedinUrl or salesNavigatorUrl) is required"
 );
 
+// ── Validate session ──────────────────────────────────────
 router.get("/validate", async (req: Request, res: Response) => {
   try {
     const token = req.headers.authorization?.replace("Bearer ", "");
-    
+
     if (!token) {
-      return res.status(401).json({ 
-        valid: false, 
-        message: "No token provided" 
-      });
+      return res.status(401).json({ valid: false, message: "No token provided" });
     }
 
     const { valid, user } = await validateSession(token);
-    
+
     if (!valid || !user) {
-      return res.status(401).json({ 
-        valid: false, 
-        message: "Invalid or expired token" 
-      });
+      return res.status(401).json({ valid: false, message: "Invalid or expired token" });
     }
 
     const fullUser = await storage.getUserById(user.id);
@@ -72,36 +67,31 @@ router.get("/validate", async (req: Request, res: Response) => {
   }
 });
 
+// ── Lookup by LinkedIn URL ────────────────────────────────
 router.post("/lookup", async (req: Request, res: Response) => {
   try {
     const token = req.headers.authorization?.replace("Bearer ", "");
-    
+
     if (!token) {
-      return res.status(401).json({ 
-        success: false, 
-        message: "Authentication required" 
-      });
+      return res.status(401).json({ success: false, message: "Authentication required" });
     }
 
     const { valid, user } = await validateSession(token);
-    
+
     if (!valid || !user) {
-      return res.status(401).json({ 
-        success: false, 
-        message: "Invalid or expired token" 
-      });
+      return res.status(401).json({ success: false, message: "Invalid or expired token" });
     }
 
     const parsed = linkedinLookupSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "At least one URL (linkedinUrl or salesNavigatorUrl) is required" 
+      return res.status(400).json({
+        success: false,
+        message: "At least one URL (linkedinUrl or salesNavigatorUrl) is required"
       });
     }
 
     const { linkedinUrl, salesNavigatorUrl } = parsed.data;
-    
+
     let normalizedLinkedInUrl: string | undefined;
     if (linkedinUrl) {
       normalizedLinkedInUrl = linkedinUrl
@@ -119,79 +109,42 @@ router.post("/lookup", async (req: Request, res: Response) => {
       res.json({
         success: true,
         found: true,
-        contact: {
-          id: contact.id,
-          fullName: contact.fullName,
-          firstName: contact.firstName,
-          lastName: contact.lastName,
-          email: contact.email,
-          mobilePhone: contact.mobilePhone,
-          otherPhone: contact.otherPhone,
-          title: contact.title,
-          company: contact.company,
-          industry: contact.industry,
-          website: contact.website,
-          city: contact.city,
-          state: contact.state,
-          country: contact.country,
-          leadScore: contact.leadScore,
-          personLinkedIn: contact.personLinkedIn,
-          salesNavigatorUrl: contact.salesNavigatorUrl,
-        },
-        usage: {
-          remaining: null,
-          limit: null,
-          unlimited: true,
-        },
+        contact,
+        usage: { remaining: null, limit: null, unlimited: true },
       });
     } else {
       res.json({
         success: true,
         found: false,
         message: "No contact found for this profile",
-        usage: {
-          remaining: null,
-          limit: null,
-          unlimited: true,
-        },
+        usage: { remaining: null, limit: null, unlimited: true },
       });
     }
   } catch (error) {
     console.error("Extension lookup error:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: "Internal server error" 
-    });
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
 
+// ── Search contacts ───────────────────────────────────────
 router.post("/search", async (req: Request, res: Response) => {
   try {
     const token = req.headers.authorization?.replace("Bearer ", "");
-    
+
     if (!token) {
-      return res.status(401).json({ 
-        success: false, 
-        message: "Authentication required" 
-      });
+      return res.status(401).json({ success: false, message: "Authentication required" });
     }
 
     const { valid, user } = await validateSession(token);
-    
+
     if (!valid || !user) {
-      return res.status(401).json({ 
-        success: false, 
-        message: "Invalid or expired token" 
-      });
+      return res.status(401).json({ success: false, message: "Invalid or expired token" });
     }
 
     const { query, limit = 10 } = req.body;
-    
+
     if (!query || typeof query !== "string") {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Search query is required" 
-      });
+      return res.status(400).json({ success: false, message: "Search query is required" });
     }
 
     const { contacts } = await storage.getContacts({
@@ -203,85 +156,66 @@ router.post("/search", async (req: Request, res: Response) => {
     res.json({
       success: true,
       contacts: contacts.map(c => ({
-        id: c.id,
-        fullName: c.fullName,
-        email: c.email,
-        title: c.title,
-        company: c.company,
-        personLinkedIn: c.personLinkedIn,
+        id: c.leadId,
+        fullName: `${c.firstName || ""} ${c.lastName || ""}`.trim() || "Unknown",
+        email: c.emailPrimary,
+        title: c.titleRaw,
+        company: c.companyName,
+        personLinkedIn: c.linkedinPersonUrl,
       })),
       count: contacts.length,
-      usage: {
-        remaining: null,
-        limit: null,
-        unlimited: true,
-      },
+      usage: { remaining: null, limit: null, unlimited: true },
     });
   } catch (error) {
     console.error("Extension search error:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: "Internal server error" 
-    });
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
 
+// ── Save profile from LinkedIn ────────────────────────────
 router.post("/save-profile", async (req: Request, res: Response) => {
   try {
     const token = req.headers.authorization?.replace("Bearer ", "");
-    
+
     if (!token) {
-      return res.status(401).json({ 
-        success: false, 
-        message: "Authentication required" 
-      });
+      return res.status(401).json({ success: false, message: "Authentication required" });
     }
 
     const { valid, user } = await validateSession(token);
-    
+
     if (!valid || !user) {
-      return res.status(401).json({ 
-        success: false, 
-        message: "Invalid or expired token" 
-      });
+      return res.status(401).json({ success: false, message: "Invalid or expired token" });
     }
 
     const { linkedinUrl, salesNavigatorUrl, fullName, firstName, lastName, title, company, email, location } = req.body;
-    
+
     if (!fullName) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Full name is required" 
-      });
+      return res.status(400).json({ success: false, message: "Full name is required" });
     }
 
     if (!linkedinUrl && !salesNavigatorUrl) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "At least one URL (linkedinUrl or salesNavigatorUrl) is required" 
+      return res.status(400).json({
+        success: false,
+        message: "At least one URL (linkedinUrl or salesNavigatorUrl) is required"
       });
     }
 
-    // Check if either URL already exists
+    // Check if already exists
     const existing = await storage.findContactByLinkedInUrls(linkedinUrl, salesNavigatorUrl);
     if (existing) {
-      return res.status(409).json({ 
-        success: false, 
-        message: "This profile is already saved" 
-      });
+      return res.status(409).json({ success: false, message: "This profile is already saved" });
     }
 
-    // Extract first and last name if not provided
+    // Extract first/last name if not provided
     let firstName_ = firstName;
     let lastName_ = lastName;
-    
+
     if (!firstName_ && !lastName_) {
       const nameParts = fullName.trim().split(/\s+/);
       firstName_ = nameParts[0] || "";
       lastName_ = nameParts.slice(1).join(" ") || "";
     }
 
-    // Create the contact with both URLs
     const contact = await storage.createProspect({
       firstName: firstName_ || "",
       lastName: lastName_ || "",
@@ -305,10 +239,7 @@ router.post("/save-profile", async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error("Extension save profile error:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: "Failed to save profile" 
-    });
+    res.status(500).json({ success: false, message: "Failed to save profile" });
   }
 });
 

@@ -1,6 +1,6 @@
-(function() {
-  const CRM_BASE_URL = "https://crm.fallowl.com";
-  
+(function () {
+  const CRM_BASE_URL = "http://localhost:5000";
+
   let autoLookupPerformed = {};
   let lastUrl = location.href;
   let isDragging = false;
@@ -156,25 +156,25 @@
 
   function startDrag(e) {
     if (e.button !== 0) return;
-    
+
     const btn = document.getElementById("prospect-lookup-btn");
     if (!btn) return;
 
     const rect = btn.getBoundingClientRect();
     dragOffset.x = e.clientX - rect.left;
     dragOffset.y = e.clientY - rect.top;
-    
+
     isDragging = false;
-    
+
     document.addEventListener("mousemove", onDrag);
     document.addEventListener("mouseup", stopDrag);
-    
+
     e.preventDefault();
   }
 
   function onDrag(e) {
     isDragging = true;
-    
+
     const btn = document.getElementById("prospect-lookup-btn");
     if (!btn) return;
 
@@ -224,7 +224,7 @@
 
   function showButton() {
     if (popupOpen) return;
-    
+
     const btn = document.getElementById("prospect-lookup-btn");
     if (btn) {
       btn.classList.remove("prospect-btn-hidden");
@@ -274,10 +274,10 @@
       }
 
       const apiBaseUrl = result.apiBaseUrl || CRM_BASE_URL;
-      
+
       let linkedinUrl = getLinkedInUrlForLookup();
       let salesNavigatorUrl = getSalesNavigatorUrl();
-      
+
       // On Sales Navigator pages, extract the public LinkedIn URL for lookup
       let publicProfileUrl = linkedinUrl;
       if (isSalesNavigatorPage() && !publicProfileUrl) {
@@ -368,13 +368,13 @@
 
     try {
       const result = await chrome.storage.local.get(["authToken", "apiBaseUrl"]);
-      
+
       if (!result.authToken) {
         return;
       }
 
       let linkedinUrl;
-      
+
       if (isProfilePage()) {
         linkedinUrl = window.location.href;
       } else if (isSalesNavigatorPage()) {
@@ -428,7 +428,7 @@
   function waitForSalesNavProfile() {
     // Extract Sales Navigator URL directly from the current tab
     const salesNavigatorUrl = getSalesNavigatorUrl();
-    
+
     if (!salesNavigatorUrl) {
       console.log("Could not extract Sales Navigator URL");
       createLookupButton(true);
@@ -437,7 +437,7 @@
 
     // Create lookup button immediately
     createLookupButton(true);
-    
+
     // Auto-perform lookup with the Sales Navigator URL
     const profileKey = getProfileKey();
     if (profileKey) {
@@ -465,7 +465,7 @@
             Authorization: `Bearer ${result.authToken}`,
           },
           credentials: "include",
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             salesNavigatorUrl: salesNavigatorUrl
           }),
         });
@@ -608,7 +608,7 @@
 
   function createCopyableField(iconSvg, label, value, linkType = null) {
     const linkHref = linkType === 'email' ? `mailto:${value}` : linkType === 'phone' ? `tel:${value}` : null;
-    
+
     return `
       <div class="prospect-card-field" data-copy-value="${value}" data-copy-label="${label}">
         <div class="prospect-field-icon">${iconSvg}</div>
@@ -726,18 +726,18 @@
         resetButton();
       }, 300);
     });
-    
+
     card.querySelectorAll(".prospect-card-field").forEach(field => {
       const copyBtn = field.querySelector(".prospect-copy-btn");
       const value = field.dataset.copyValue;
       const label = field.dataset.copyLabel;
-      
+
       if (copyBtn && value) {
         copyBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           copyToClipboard(value, label);
         });
-        
+
         field.addEventListener("click", () => copyToClipboard(value, label));
       }
     });
@@ -748,7 +748,7 @@
         syncBtn.disabled = true;
         const originalText = syncBtn.textContent;
         syncBtn.textContent = "Saving...";
-        
+
         try {
           const result = await chrome.storage.local.get(["authToken", "apiBaseUrl"]);
           const apiBaseUrl = result.apiBaseUrl || CRM_BASE_URL;
@@ -756,7 +756,7 @@
           // Determine the correct URLs to save
           let linkedinUrlToSave = publicUrl;
           let salesNavUrlToSave = undefined;
-          
+
           if (isSalesNavigatorPage()) {
             linkedinUrlToSave = publicUrl;
             salesNavUrlToSave = window.location.href;
@@ -816,7 +816,7 @@
 
   async function initialize() {
     await loadButtonPosition();
-    
+
     if (isProfilePage()) {
       notifyBackground();
       createLookupButton();
@@ -832,7 +832,7 @@
   new MutationObserver(() => {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
-      
+
       const existingCard = document.getElementById("prospect-contact-card");
       if (existingCard) {
         existingCard.classList.add("prospect-card-hidden");
@@ -848,7 +848,7 @@
         salesNavObserver.disconnect();
         salesNavObserver = null;
       }
-      
+
       if (isProfilePage()) {
         notifyBackground();
         setTimeout(() => {

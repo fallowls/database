@@ -1,4 +1,4 @@
-const CRM_BASE_URL = "https://crm.fallowl.com";
+const CRM_BASE_URL = "http://localhost:5000";
 
 const loadingView = document.getElementById("loading-view");
 const redirectingView = document.getElementById("redirecting-view");
@@ -172,29 +172,29 @@ function isSalesNavigatorPage(url) {
 async function checkCurrentTab() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
+
     noProfileSection.classList.add("hidden");
     notFoundSection.classList.add("hidden");
     contactResult.classList.add("hidden");
     linkedinLookupSection.classList.add("hidden");
     autoLookupLoading.classList.add("hidden");
-    
+
     if (isProfilePage(tab?.url)) {
       currentLinkedInUrl = tab.url;
-      
+
       const profileMatch = tab.url.match(/linkedin\.com\/in\/([^/?]+)/);
       const profileSlug = profileMatch ? profileMatch[1].replace(/-/g, " ") : "Profile";
       linkedinProfileName.textContent = formatProfileName(profileSlug);
-      
+
       linkedinLookupSection.classList.remove("hidden");
       linkedinLookupSection.classList.add("slide-in");
-      
+
       await performAutoLookup();
     } else if (isSalesNavigatorPage(tab?.url)) {
       linkedinProfileName.textContent = "Sales Navigator Profile";
       linkedinLookupSection.classList.remove("hidden");
       linkedinLookupSection.classList.add("slide-in");
-      
+
       await extractAndLookupSalesNav(tab.id);
     } else {
       currentLinkedInUrl = null;
@@ -210,11 +210,11 @@ async function extractAndLookupSalesNav(tabId) {
   autoLookupLoading.classList.remove("hidden");
   autoLookupLoading.classList.add("fade-in");
   linkedinLookupSection.classList.add("hidden");
-  
+
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const salesNavUrl = tab.url;
-    
+
     if (salesNavUrl && salesNavUrl.includes("linkedin.com/sales/lead/")) {
       currentLinkedInUrl = null;
       currentSalesNavigatorUrl = salesNavUrl;
@@ -243,13 +243,13 @@ function formatProfileName(slug) {
 
 async function performAutoLookup() {
   if ((!currentLinkedInUrl && !currentSalesNavigatorUrl) || isAutoLooking) return;
-  
+
   isAutoLooking = true;
-  
+
   linkedinLookupSection.classList.add("hidden");
   autoLookupLoading.classList.remove("hidden");
   autoLookupLoading.classList.add("fade-in");
-  
+
   try {
     const { token, apiBaseUrl } = await getStoredAuth();
 
@@ -298,16 +298,16 @@ async function performAutoLookup() {
     linkedinLookupSection.classList.remove("hidden");
     showError("Failed to look up profile");
   }
-  
+
   isAutoLooking = false;
 }
 
 async function performManualLookup() {
   if (!currentLinkedInUrl && !currentSalesNavigatorUrl) return;
-  
+
   const btnContent = lookupBtn.querySelector(".btn-lookup-content");
   const btnLoading = lookupBtn.querySelector(".btn-lookup-loading");
-  
+
   lookupBtn.disabled = true;
   btnContent.classList.add("hidden");
   btnLoading.classList.remove("hidden");
@@ -364,7 +364,7 @@ async function performManualLookup() {
 function resetLookupButton() {
   const btnContent = lookupBtn.querySelector(".btn-lookup-content");
   const btnLoading = lookupBtn.querySelector(".btn-lookup-loading");
-  
+
   lookupBtn.disabled = false;
   btnContent.classList.remove("hidden");
   btnLoading.classList.add("hidden");
@@ -373,26 +373,26 @@ function resetLookupButton() {
 function showContactResult(contact) {
   contactResult.classList.remove("hidden");
   contactResult.classList.add("scale-in");
-  
+
   contactAvatar.textContent = contact.fullName.charAt(0).toUpperCase();
   contactName.textContent = contact.fullName;
-  
+
   if (contact.title) {
     contactTitle.textContent = contact.title;
     contactTitle.classList.remove("hidden");
   } else {
     contactTitle.classList.add("hidden");
   }
-  
+
   if (contact.company) {
     contactCompany.textContent = contact.company;
     contactCompany.classList.remove("hidden");
   } else {
     contactCompany.classList.add("hidden");
   }
-  
+
   let fieldsHtml = "";
-  
+
   if (contact.email) {
     fieldsHtml += createFieldHtml("email", "Email", contact.email, `mailto:${contact.email}`);
     contactEmailBtn.href = `mailto:${contact.email}`;
@@ -400,7 +400,7 @@ function showContactResult(contact) {
   } else {
     contactEmailBtn.classList.add("hidden");
   }
-  
+
   if (contact.mobilePhone) {
     fieldsHtml += createFieldHtml("phone", "Mobile", contact.mobilePhone, `tel:${contact.mobilePhone}`);
     contactPhoneBtn.href = `tel:${contact.mobilePhone}`;
@@ -408,16 +408,16 @@ function showContactResult(contact) {
   } else {
     contactPhoneBtn.classList.add("hidden");
   }
-  
+
   if (contact.otherPhone) {
     fieldsHtml += createFieldHtml("phone", "Phone", contact.otherPhone, `tel:${contact.otherPhone}`);
   }
-  
+
   const location = [contact.city, contact.state, contact.country].filter(Boolean).join(", ");
   if (location) {
     fieldsHtml += createFieldHtml("location", "Location", location);
   }
-  
+
   if (contact.leadScore) {
     fieldsHtml += createFieldHtml("score", "Lead Score", contact.leadScore);
   }
@@ -456,9 +456,9 @@ function showContactResult(contact) {
       </div>
     `;
   }
-  
+
   contactFields.innerHTML = fieldsHtml;
-  
+
   contactFields.querySelectorAll(".field-copy-btn").forEach(btn => {
     btn.addEventListener("click", (e) => {
       e.preventDefault();
@@ -479,7 +479,7 @@ function createFieldHtml(type, label, value, link = null) {
     location: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>`,
     score: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`
   };
-  
+
   return `
     <div class="contact-field slide-in-stagger">
       <div class="field-icon">${icons[type]}</div>

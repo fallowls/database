@@ -1,344 +1,182 @@
-import { Sidebar } from "@/components/layout/sidebar";
-import { Header } from "@/components/layout/header";
-import { StatsCards } from "@/components/contacts/stats-cards";
-import { ContactsTable } from "@/components/contacts/contacts-table";
-import { FilterBar } from "@/components/contacts/filter-bar";
-import { SmartImportWizard } from "@/components/import/smart-import-wizard";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Users, Building2, Mail, Phone, Linkedin, TrendingUp, ArrowUpRight } from "lucide-react";
+import { Link } from "wouter";
+
+interface StatsData {
+  totalProspects: number;
+  totalCompanies: number;
+  withEmail: number;
+  withPhone: number;
+  withLinkedin: number;
+  topIndustries: { name: string; count: number }[];
+  seniorityBreakdown: { level: string; count: number }[];
+  topSources: { source: string; count: number }[];
+}
+
+function MetricCard({ icon: Icon, label, value, change, color, href, loading }: {
+  icon: any; label: string; value: number; change?: string; color: string; href?: string; loading?: boolean;
+}) {
+  const content = (
+    <div className="group relative bg-white dark:bg-[#111118] rounded-2xl border border-gray-100 dark:border-white/[0.06] p-5 hover:border-gray-200 dark:hover:border-white/[0.12] transition-all hover:shadow-sm cursor-pointer">
+      <div className="flex items-center justify-between mb-4">
+        <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${color}`}>
+          <Icon className="w-4.5 h-4.5 text-white" />
+        </div>
+        {href && <ArrowUpRight className="w-4 h-4 text-gray-300 dark:text-white/20 group-hover:text-gray-500 dark:group-hover:text-white/40 transition-colors" />}
+      </div>
+      <div>
+        {loading ? (
+          <div className="h-8 w-24 bg-gray-100 dark:bg-white/[0.06] rounded-lg animate-pulse" />
+        ) : (
+          <p className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">{value.toLocaleString()}</p>
+        )}
+        <p className="text-xs text-gray-400 dark:text-white/30 mt-1 font-medium">{label}</p>
+      </div>
+      {change && <span className="absolute top-5 right-5 text-[10px] font-semibold text-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 px-1.5 py-0.5 rounded-md">{change}</span>}
+    </div>
+  );
+
+  return href ? <Link href={href}>{content}</Link> : content;
+}
+
+function ProgressBar({ label, value, max, color }: { label: string; value: number; max: number; color: string }) {
+  const pct = max > 0 ? (value / max) * 100 : 0;
+  return (
+    <div className="flex items-center gap-3 py-1.5">
+      <span className="text-xs text-gray-500 dark:text-white/40 w-36 truncate flex-shrink-0 capitalize">{label}</span>
+      <div className="flex-1 h-1.5 bg-gray-100 dark:bg-white/[0.04] rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${Math.max(pct, 1)}%` }} />
+      </div>
+      <span className="text-[11px] font-mono text-gray-400 dark:text-white/30 w-14 text-right">{value.toLocaleString()}</span>
+    </div>
+  );
+}
+
+function CoverageRing({ label, percent, color, loading }: { label: string; percent: number; color: string; loading?: boolean }) {
+  return (
+    <div className="flex flex-col items-center">
+      <div className="relative w-16 h-16 mb-2">
+        <svg className="w-16 h-16 -rotate-90" viewBox="0 0 36 36">
+          <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-100 dark:text-white/[0.04]" />
+          <circle cx="18" cy="18" r="14" fill="none" strokeWidth="2" strokeDasharray={`${percent} ${100 - percent}`}
+            strokeDashoffset="0" className={color} strokeLinecap="round"
+            style={{ transition: "stroke-dasharray 1s ease" }} />
+        </svg>
+        <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-gray-900 dark:text-white">
+          {loading ? "—" : `${percent}%`}
+        </span>
+      </div>
+      <span className="text-[11px] text-gray-400 dark:text-white/30">{label}</span>
+    </div>
+  );
+}
 
 export default function Dashboard() {
-  const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
-  const [filters, setFilters] = useState({
-    search: '',
-    industry: '',
-    employeeSizeBracket: '',
-    country: '',
+  const { data: stats, isLoading } = useQuery<StatsData>({
+    queryKey: ["/api/stats"],
+    staleTime: 60_000,
   });
-  const [showImportDialog, setShowImportDialog] = useState(false);
-  const [showBulkEditDialog, setShowBulkEditDialog] = useState(false);
-  const [bulkEditData, setBulkEditData] = useState({
-    industry: '',
-    employeeSizeBracket: '',
-    country: '',
-    leadScore: '',
-  });
-  const [isUpdating, setIsUpdating] = useState(false);
-  
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('authToken');
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    return headers;
-  };
-
-  const handleExportContacts = () => {
-    // Trigger download of the CSV export
-    const link = document.createElement('a');
-    link.href = '/api/export';
-    link.download = `contacts-${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleBulkEdit = () => {
-    if (selectedContactIds.length === 0) {
-      toast({
-        title: "No contacts selected",
-        description: "Please select at least one contact to edit.",
-        variant: "destructive",
-      });
-      return;
-    }
-    setShowBulkEditDialog(true);
-  };
-
-  const executeBulkUpdate = async () => {
-    if (selectedContactIds.length === 0) return;
-    
-    setIsUpdating(true);
-    try {
-      // Filter out empty values and "keep-existing" selections
-      const updateData = Object.fromEntries(
-        Object.entries(bulkEditData).filter(([_, value]) => value && value !== '' && value !== 'keep-existing')
-      );
-      
-      if (Object.keys(updateData).length === 0) {
-        toast({
-          title: "No changes to apply",
-          description: "Please fill in at least one field to update.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const response = await fetch('/api/contacts/bulk-update', {
-        method: 'PATCH',
-        headers: getAuthHeaders(),
-        credentials: 'include',
-        body: JSON.stringify({
-          contactIds: selectedContactIds,
-          updates: updateData
-        })
-      });
-
-      if (response.ok) {
-        toast({
-          title: "Contacts updated successfully",
-          description: `Updated ${selectedContactIds.length} contacts.`,
-        });
-        setShowBulkEditDialog(false);
-        setSelectedContactIds([]);
-        setBulkEditData({
-          industry: '',
-          employeeSizeBracket: '',
-          country: '',
-          leadScore: '',
-        });
-        queryClient.invalidateQueries({ queryKey: ['contacts'] });
-      } else {
-        throw new Error('Failed to update contacts');
-      }
-    } catch (error) {
-      toast({
-        title: "Update failed",
-        description: "Failed to update contacts. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsUpdating(false);
-    }
-  };
+  const pctEmail = stats ? Math.round((stats.withEmail / stats.totalProspects) * 100) : 0;
+  const pctPhone = stats ? Math.round((stats.withPhone / stats.totalProspects) * 100) : 0;
+  const pctLinkedin = stats ? Math.round((stats.withLinkedin / stats.totalProspects) * 100) : 0;
+  const maxIndustry = stats?.topIndustries[0]?.count ?? 1;
+  const maxSeniority = stats?.seniorityBreakdown[0]?.count ?? 1;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-900">
-      <Sidebar />
-      
-      <div className="flex flex-col w-0 flex-1 overflow-hidden">
-        <Header />
-        
-        <main className="flex-1 relative overflow-y-auto focus:outline-none">
-          <div className="py-6">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8">
-              {/* Page header */}
-              <div className="mb-8">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Contact Database</h1>
-                    <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">Manage and organize your contact information</p>
-                  </div>
-                  <div className="flex space-x-3">
-                    <button 
-                      onClick={() => setShowImportDialog(true)}
-                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-blue-700 dark:hover:bg-blue-800"
-                      data-testid="button-import-csv"
-                    >
-                      <i className="fas fa-upload mr-2"></i>
-                      Import CSV
-                    </button>
-                    <button 
-                      onClick={handleExportContacts}
-                      className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 text-sm font-medium rounded-md text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                      data-testid="button-export-csv"
-                    >
-                      <i className="fas fa-download mr-2"></i>
-                      Export
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <StatsCards />
-              
-              <FilterBar 
-                filters={filters}
-                onFiltersChange={setFilters}
-                selectedCount={selectedContactIds.length}
-                onBulkEdit={handleBulkEdit}
-                onBulkDelete={async () => {
-                  if (selectedContactIds.length > 0 && confirm(`Delete ${selectedContactIds.length} contacts?`)) {
-                    try {
-                      const response = await fetch('/api/contacts', {
-                        method: 'DELETE',
-                        headers: getAuthHeaders(),
-                        credentials: 'include',
-                        body: JSON.stringify({ ids: selectedContactIds })
-                      });
-                      if (response.ok) {
-                        setSelectedContactIds([]);
-                        queryClient.invalidateQueries({ queryKey: ['contacts'] });
-                        queryClient.invalidateQueries({ queryKey: ['stats'] });
-                        toast({
-                          title: "Contacts deleted",
-                          description: `Successfully deleted ${selectedContactIds.length} contacts.`,
-                        });
-                      }
-                    } catch (error) {
-                      console.error('Bulk delete failed:', error);
-                      toast({
-                        title: "Delete failed",
-                        description: "Failed to delete contacts. Please try again.",
-                        variant: "destructive",
-                      });
-                    }
-                  }
-                }}
-              />
-              
-              <ContactsTable 
-                filters={filters}
-                selectedContactIds={selectedContactIds}
-                onSelectionChange={setSelectedContactIds}
-              />
-            </div>
-          </div>
-        </main>
+    <div className="p-6 lg:p-8 max-w-6xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex items-end justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Overview</h1>
+          <p className="text-xs text-gray-400 dark:text-white/30 mt-0.5">Real-time database metrics</p>
+        </div>
+        <div className="flex items-center gap-1.5 text-[10px] text-emerald-500 font-medium bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-1 rounded-full">
+          <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+          Live
+        </div>
       </div>
 
-      {/* Import Dialog */}
-      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-bold">Import Contacts from CSV</DialogTitle>
-          </DialogHeader>
-          <div className="flex-1 overflow-hidden">
-            <SmartImportWizard />
+      {/* Metric Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <MetricCard icon={Users} label="Total Prospects" value={stats?.totalProspects ?? 0} color="bg-emerald-500" href="/prospects" loading={isLoading} />
+        <MetricCard icon={Building2} label="Total Companies" value={stats?.totalCompanies ?? 0} color="bg-blue-500" href="/companies" loading={isLoading} />
+        <MetricCard icon={Mail} label="With Email" value={stats?.withEmail ?? 0} color="bg-violet-500" loading={isLoading} />
+        <MetricCard icon={Phone} label="With Phone" value={stats?.withPhone ?? 0} color="bg-amber-500" loading={isLoading} />
+        <MetricCard icon={Linkedin} label="With LinkedIn" value={stats?.withLinkedin ?? 0} color="bg-sky-500" loading={isLoading} />
+      </div>
+
+      {/* Data Quality + Industry */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Data Quality */}
+        <div className="bg-white dark:bg-[#111118] rounded-2xl border border-gray-100 dark:border-white/[0.06] p-5">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-5">Data Quality</h2>
+          <div className="flex justify-around">
+            <CoverageRing label="Email" percent={pctEmail} color="stroke-violet-500" loading={isLoading} />
+            <CoverageRing label="Phone" percent={pctPhone} color="stroke-amber-500" loading={isLoading} />
+            <CoverageRing label="LinkedIn" percent={pctLinkedin} color="stroke-sky-500" loading={isLoading} />
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
 
-      {/* Bulk Edit Dialog */}
-      <Dialog open={showBulkEditDialog} onOpenChange={setShowBulkEditDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Bulk Edit Contacts</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              Update {selectedContactIds.length} selected contacts. Leave fields empty to keep existing values.
-            </p>
-            
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium">Update Fields</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="bulk-industry" className="text-sm">Industry</Label>
-                  <Select 
-                    value={bulkEditData.industry} 
-                    onValueChange={(value) => setBulkEditData(prev => ({ ...prev, industry: value }))}
-                  >
-                    <SelectTrigger id="bulk-industry">
-                      <SelectValue placeholder="Select industry..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="keep-existing">Keep existing</SelectItem>
-                      <SelectItem value="Technology">Technology</SelectItem>
-                      <SelectItem value="Healthcare">Healthcare</SelectItem>
-                      <SelectItem value="Finance">Finance</SelectItem>
-                      <SelectItem value="Manufacturing">Manufacturing</SelectItem>
-                      <SelectItem value="Education">Education</SelectItem>
-                      <SelectItem value="Consulting">Consulting</SelectItem>
-                      <SelectItem value="Retail">Retail</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="bulk-size" className="text-sm">Company Size</Label>
-                  <Select 
-                    value={bulkEditData.employeeSizeBracket} 
-                    onValueChange={(value) => setBulkEditData(prev => ({ ...prev, employeeSizeBracket: value }))}
-                  >
-                    <SelectTrigger id="bulk-size">
-                      <SelectValue placeholder="Select size bracket..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="keep-existing">Keep existing</SelectItem>
-                      <SelectItem value="1-10">1-10 employees</SelectItem>
-                      <SelectItem value="11-50">11-50 employees</SelectItem>
-                      <SelectItem value="51-200">51-200 employees</SelectItem>
-                      <SelectItem value="201-1000">201-1000 employees</SelectItem>
-                      <SelectItem value="1000+">1000+ employees</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="bulk-country" className="text-sm">Country</Label>
-                  <Select 
-                    value={bulkEditData.country} 
-                    onValueChange={(value) => setBulkEditData(prev => ({ ...prev, country: value }))}
-                  >
-                    <SelectTrigger id="bulk-country">
-                      <SelectValue placeholder="Select country..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="keep-existing">Keep existing</SelectItem>
-                      <SelectItem value="United States">United States</SelectItem>
-                      <SelectItem value="United Kingdom">United Kingdom</SelectItem>
-                      <SelectItem value="Germany">Germany</SelectItem>
-                      <SelectItem value="Canada">Canada</SelectItem>
-                      <SelectItem value="Japan">Japan</SelectItem>
-                      <SelectItem value="India">India</SelectItem>
-                      <SelectItem value="Australia">Australia</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="bulk-lead-score" className="text-sm">Lead Score</Label>
-                  <Input
-                    id="bulk-lead-score"
-                    type="number"
-                    min="0"
-                    max="100"
-                    placeholder="Enter lead score (0-100)"
-                    value={bulkEditData.leadScore}
-                    onChange={(e) => setBulkEditData(prev => ({ ...prev, leadScore: e.target.value }))}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            <div className="flex justify-end space-x-2 pt-4">
-              <Button
-                variant="outline"
-                onClick={() => setShowBulkEditDialog(false)}
-                disabled={isUpdating}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={executeBulkUpdate}
-                disabled={isUpdating}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                {isUpdating ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                    Updating...
-                  </>
-                ) : (
-                  `Update ${selectedContactIds.length} Contacts`
-                )}
-              </Button>
+        {/* Industry */}
+        <div className="bg-white dark:bg-[#111118] rounded-2xl border border-gray-100 dark:border-white/[0.06] p-5 lg:col-span-2">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Top Industries</h2>
+          {isLoading ? (
+            <div className="space-y-3">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-4 bg-gray-100 dark:bg-white/[0.04] rounded animate-pulse" />)}</div>
+          ) : (
+            <div className="space-y-1">
+              {stats?.topIndustries.map((ind, i) => (
+                <ProgressBar key={ind.name} label={ind.name} value={ind.count} max={maxIndustry}
+                  color={["bg-blue-500", "bg-indigo-500", "bg-violet-500", "bg-emerald-500", "bg-amber-500", "bg-rose-500", "bg-cyan-500", "bg-pink-500"][i % 8]} />
+              ))}
             </div>
+          )}
+        </div>
+      </div>
+
+      {/* Seniority + Sources */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-white dark:bg-[#111118] rounded-2xl border border-gray-100 dark:border-white/[0.06] p-5">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Seniority Levels</h2>
+          {isLoading ? (
+            <div className="space-y-3">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-4 bg-gray-100 dark:bg-white/[0.04] rounded animate-pulse" />)}</div>
+          ) : (
+            <div className="space-y-1">
+              {stats?.seniorityBreakdown.map((s) => (
+                <ProgressBar key={s.level} label={s.level} value={s.count} max={maxSeniority}
+                  color={
+                    s.level.toLowerCase() === "cxo" ? "bg-violet-500" :
+                      s.level.toLowerCase() === "vp" ? "bg-indigo-500" :
+                        s.level.toLowerCase() === "director" ? "bg-blue-500" :
+                          s.level.toLowerCase() === "manager" ? "bg-emerald-500" :
+                            "bg-gray-400"
+                  } />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white dark:bg-[#111118] rounded-2xl border border-gray-100 dark:border-white/[0.06] p-5">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Data Sources</h2>
+          <div className="space-y-3">
+            {isLoading ? (
+              Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-8 bg-gray-100 dark:bg-white/[0.04] rounded animate-pulse" />)
+            ) : (
+              stats?.topSources.map((s) => (
+                <div key={s.source} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-2 h-2 rounded-full bg-blue-500" />
+                    <span className="text-sm text-gray-700 dark:text-white/60">{s.source}</span>
+                  </div>
+                  <span className="text-xs font-mono text-gray-400 dark:text-white/30 bg-gray-50 dark:bg-white/[0.04] px-2 py-0.5 rounded">
+                    {s.count.toLocaleString()}
+                  </span>
+                </div>
+              ))
+            )}
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </div>
     </div>
   );
 }

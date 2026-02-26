@@ -1,5 +1,5 @@
-(function() {
-  const CRM_BASE_URL = "https://crm.fallowl.com";
+(function () {
+  const CRM_BASE_URL = "http://localhost:5000";
   const apiBaseUrl = window.location.origin;
 
   function syncAuthToExtension(token) {

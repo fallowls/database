@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   pgTable,
+  pgSchema,
   text,
   integer,
   bigint,
@@ -16,24 +17,19 @@ import { createInsertSchema } from "drizzle-zod";
 
 /**
  * IMPORTANT
- * This schema mirrors the EXISTING Neon database schema used by Ansh.
- * It intentionally replaces the old CRM schema entirely.
- *
- * Tables present in Neon (public):
- * - company
- * - leads
- * - contacts
- * - account_aliases
- * - staging_apollo
- * - staging_lusha
- * - staging_company_apollo_accounts
+ * This schema mirrors the EXISTING Neon core schema.
+ * Core tables live under the `core` schema:
+ * - core.companies
+ * - core.leads
  */
 
+const core = pgSchema("core");
+
 // =====================
-// Canonical accounts
+// Canonical companies
 // =====================
-export const company = pgTable(
-  "company",
+export const companies = core.table(
+  "companies",
   {
     companyId: uuid("company_id").primaryKey().default(sql`gen_random_uuid()`),
 
@@ -67,13 +63,10 @@ export const company = pgTable(
     updatedAt: timestamp("updated_at"),
 
     // Canonicalization
-    companyNameCanonical: text("company_name_canonical"),
-    companyNameNormalized: text("company_name_normalized"),
     companyWebsiteNormalized: text("company_website_normalized"),
     companyLinkedinUrlNormalized: text("company_linkedin_url_normalized"),
     companyDomainNormalized: text("company_domain_normalized"),
 
-    industryCategory: text("industry_category"),
     countryIso2: text("country_iso2"),
     stateRegion: text("state_region"),
 
@@ -84,7 +77,7 @@ export const company = pgTable(
     mergeReason: text("merge_reason"),
     mergeConfidence: numeric("merge_confidence"),
     isCanonical: boolean("is_canonical"),
-    companyNameDerived: text("company_name_derived"),
+
 
     // Apollo enrichment fields added during account imports
     facebookUrl: text("facebook_url"),
@@ -111,139 +104,23 @@ export const company = pgTable(
   },
   (t) => [
     // only the most obvious / low-risk indexes
-    index("company_domain_norm_idx").on(t.companyDomainNormalized),
-    index("company_linkedin_norm_idx").on(t.companyLinkedinUrlNormalized),
+    index("companies_domain_norm_idx").on(t.companyDomainNormalized),
+    index("companies_linkedin_norm_idx").on(t.companyLinkedinUrlNormalized),
   ]
 );
 
+// Backwards-compat alias
+export const company = companies;
+
 // =====================
-// Raw leads (wide)
+// Leads (wide)
 // =====================
-export const leads = pgTable(
+export const leads = core.table(
   "leads",
   {
     leadId: uuid("lead_id").primaryKey().default(sql`gen_random_uuid()`),
 
-    firstName: text("first_name"),
-    lastName: text("last_name"),
-    title: text("title"),
-    titleSecondary: text("title_secondary"),
-
-    seniority: text("seniority"),
-    departments: text("departments").array(),
-
-    linkedinPersonUrl: text("linkedin_person_url"),
-
-    emailPrimary: text("email_primary"),
-    emailSecondary: text("email_secondary"),
-    emailSecondary2: text("email_secondary_2"),
-    emailConfidence: integer("email_confidence"),
-    emailVerified: boolean("email_verified"),
-
-    phoneMobile: text("phone_mobile"),
-    phoneWork: text("phone_work"),
-    phoneOther: text("phone_other"),
-
-    phoneMobileSecondary: text("phone_mobile_secondary"),
-    phoneWorkSecondary: text("phone_work_secondary"),
-    phoneOtherSecondary: text("phone_other_secondary"),
-
-    personCity: text("person_city"),
-    personState: text("person_state"),
-    personCountry: text("person_country"),
-
-    companyName: text("company_name"),
-    companyNameForEmails: text("company_name_for_emails"),
-    companyNameNormalized: text("company_name_normalized"),
-
-    companyDomain: text("company_domain"),
-    companyWebsite: text("company_website"),
-    companyLinkedinUrl: text("company_linkedin_url"),
-
-    industry: text("industry"),
-    companyDescription: text("company_description"),
-
-    keywords: text("keywords").array(),
-    technologies: text("technologies").array(),
-
-    employeeCount: integer("employee_count"),
-    revenue: bigint("revenue", { mode: "number" }),
-    yearFounded: integer("year_founded"),
-
-    companyPhone: text("company_phone"),
-    companyAddress: text("company_address"),
-    companyCity: text("company_city"),
-    companyState: text("company_state"),
-    companyCountry: text("company_country"),
-
-    totalFunding: bigint("total_funding", { mode: "number" }),
-    latestFunding: bigint("latest_funding", { mode: "number" }),
-    lastRaisedAt: date("last_raised_at"),
-    ipoStatus: boolean("ipo_status"),
-    ipoDate: date("ipo_date"),
-
-    source: text("source"),
-    sourcePersonId: text("source_person_id"),
-    sourceCompanyId: text("source_company_id"),
-
-    stage: text("stage"),
-    lastContacted: date("last_contacted"),
-    emailSent: boolean("email_sent"),
-    emailOpen: boolean("email_open"),
-    emailBounced: boolean("email_bounced"),
-    replied: boolean("replied"),
-    demoed: boolean("demoed"),
-
-    lists: text("lists").array(),
-
-    createdAt: timestamp("created_at"),
-    updatedAt: timestamp("updated_at"),
-    lastUpdatedSource: text("last_updated_source"),
-    batchId: text("batch_id"),
-    fieldSources: jsonb("field_sources"),
-
     companyId: uuid("company_id"),
-
-    // normalization/validation
-    titleNormalized: text("title_normalized"),
-    seniorityLevel: text("seniority_level"),
-    departmentPrimary: text("department_primary"),
-    personCountryIso2: text("person_country_iso2"),
-    companyCountryIso2: text("company_country_iso2"),
-
-    emailIsValid: boolean("email_is_valid"),
-    phoneMobileIsValid: boolean("phone_mobile_is_valid"),
-    phoneWorkIsValid: boolean("phone_work_is_valid"),
-    phoneOtherIsValid: boolean("phone_other_is_valid"),
-
-    isIncomplete: boolean("is_incomplete"),
-    validationFlags: jsonb("validation_flags"),
-
-    // dedupe
-    dedupeKey: text("dedupe_key"),
-    isDuplicate: boolean("is_duplicate"),
-    duplicateOf: uuid("duplicate_of"),
-
-    nameNormalized: text("name_normalized"),
-  },
-  (t) => [
-    index("leads_dedupe_key_idx").on(t.dedupeKey),
-    index("leads_company_id_idx").on(t.companyId),
-    index("leads_email_primary_idx").on(t.emailPrimary),
-    index("leads_linkedin_person_idx").on(t.linkedinPersonUrl),
-  ]
-);
-
-// =====================
-// Canonical contacts (1 per dedupe_key)
-// =====================
-export const contacts = pgTable(
-  "contacts",
-  {
-    contactId: uuid("contact_id").primaryKey().default(sql`gen_random_uuid()`),
-    companyId: uuid("company_id"),
-    sourceLeadId: uuid("source_lead_id"),
-    dedupeKey: text("dedupe_key"),
 
     firstName: text("first_name"),
     lastName: text("last_name"),
@@ -266,6 +143,7 @@ export const contacts = pgTable(
     phoneMobile: text("phone_mobile"),
     phoneWork: text("phone_work"),
     phoneOther: text("phone_other"),
+
     phoneMobileSecondary: text("phone_mobile_secondary"),
     phoneWorkSecondary: text("phone_work_secondary"),
     phoneOtherSecondary: text("phone_other_secondary"),
@@ -284,6 +162,7 @@ export const contacts = pgTable(
     companyCountry: text("company_country"),
     companyCountryIso2: text("company_country_iso2"),
 
+    dedupeKey: text("dedupe_key"),
     isIncomplete: boolean("is_incomplete"),
     validationFlags: jsonb("validation_flags"),
 
@@ -295,12 +174,15 @@ export const contacts = pgTable(
     updatedAt: timestamp("updated_at"),
   },
   (t) => [
-    index("contacts_dedupe_key_idx").on(t.dedupeKey),
-    index("contacts_company_id_idx").on(t.companyId),
-    index("contacts_email_primary_idx").on(t.emailPrimary),
-    index("contacts_linkedin_person_idx").on(t.linkedinPersonUrl),
+    index("leads_dedupe_key_idx").on(t.dedupeKey),
+    index("leads_company_id_idx").on(t.companyId),
+    index("leads_email_primary_idx").on(t.emailPrimary),
+    index("leads_linkedin_person_idx").on(t.linkedinPersonUrl),
   ]
 );
+
+// Backwards-compat alias (treat leads as contacts)
+export const contacts = leads;
 
 // =====================
 // Aliases (for name/domain merges)
@@ -344,13 +226,38 @@ export const stagingCompanyApolloAccounts = pgTable("staging_company_apollo_acco
 });
 
 // =====================
+// Users & Auth
+// =====================
+export const users = core.table("users", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  name: text("name").notNull(),
+  role: text("role").notNull().default("user"), // 'admin' | 'user'
+  planId: text("plan_id").default("free"),
+  avatarUrl: text("avatar_url"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const authSessions = core.table("auth_sessions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid("user_id").notNull(),
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// =====================
 // Insert schemas (basic)
 // =====================
-export const insertCompanySchema = createInsertSchema(company);
+export const insertCompanySchema = createInsertSchema(companies);
 export const insertLeadSchema = createInsertSchema(leads);
 export const insertContactSchema = createInsertSchema(contacts);
+export const insertUserSchema = createInsertSchema(users);
 
-export type Company = typeof company.$inferSelect;
+export type Company = typeof companies.$inferSelect;
 export type InsertCompany = typeof insertCompanySchema._type;
 
 export type Lead = typeof leads.$inferSelect;
@@ -358,3 +265,27 @@ export type InsertLead = typeof insertLeadSchema._type;
 
 export type Contact = typeof contacts.$inferSelect;
 export type InsertContact = typeof insertContactSchema._type;
+
+export type User = typeof users.$inferSelect;
+export type InsertUser = typeof insertUserSchema._type;
+
+export type AuthSession = typeof authSessions.$inferSelect;
+
+// =====================
+// Zod schemas for auth forms
+// =====================
+import { z } from "zod";
+
+export const loginSchema = z.object({
+  email: z.string().email("Please enter a valid email"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+});
+
+export const registerSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  email: z.string().email("Please enter a valid email"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+});
+
+export type LoginCredentials = z.infer<typeof loginSchema>;
+export type RegisterCredentials = z.infer<typeof registerSchema>;
